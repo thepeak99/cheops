@@ -1,5 +1,0 @@
-package cheops
-
-func parseConfig() {
-
-}

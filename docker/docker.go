@@ -1,11 +1,11 @@
-package cheops
+package docker
 
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,13 +13,65 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/mholt/archiver"
+
+	log "github.com/sirupsen/logrus"
 )
 
-func pushImage() {
+func streamDockerOutput(reader io.ReadCloser) {
+	bufReader := bufio.NewReader(reader)
+	for {
+		line, _, err := bufReader.ReadLine()
+		if err != nil {
+			break
+		}
+		data := make(map[string]interface{})
+		err = json.Unmarshal(line, &data)
+		if err != nil {
+			break
+		}
+		if data["stream"] != nil {
+			log.Info(data["stream"])
+		} else if data["status"] != nil {
+			status := data["status"].(string)
+			if data["id"] != nil {
+				id := data["id"].(string)
+				log.WithFields(log.Fields{"id": id}).Info(status)
+			} else {
+				log.Info(status)
+			}
+		}
+	}
+	reader.Close()
+}
+
+func RunContainer(image string, commands, env []string) {
 
 }
 
-func buildImage(repoPath, dockerfilePath string, tags []string, args map[string]*string) error {
+func PushImage(image, credentials string) error {
+	log.WithFields(log.Fields{
+		"image": image,
+	}).Info("Pushing image")
+
+	cli, err := client.NewEnvClient()
+	if err != nil {
+		return err
+	}
+
+	credentialsEnc := base64.StdEncoding.EncodeToString([]byte(credentials))
+	reader, err := cli.ImagePush(context.Background(), image, types.ImagePushOptions{
+		RegistryAuth: credentialsEnc,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	streamDockerOutput(reader)
+	return nil
+}
+
+func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]*string) error {
 	cli, err := client.NewEnvClient()
 	if err != nil {
 		return err
@@ -33,26 +85,15 @@ func buildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 		info, err := cli.ImageBuild(context.Background(), reader, types.ImageBuildOptions{
 			Tags:       tags,
 			Dockerfile: dockerfilePath,
-			//		BuildArgs:  args,
+			BuildArgs:  args,
+			PullParent: true,
 		})
 		if err != nil {
 			errChan <- err
 			return
 		}
 
-		bufReader := bufio.NewReader(info.Body)
-		for {
-			line, _, err := bufReader.ReadLine()
-			if err != nil {
-				break
-			}
-			data := make(map[string]string)
-			err = json.Unmarshal(line, &data)
-			if err != nil {
-				break
-			}
-			fmt.Print(data["stream"])
-		}
+		streamDockerOutput(info.Body)
 
 		doneChan <- 1
 	}()
@@ -125,7 +166,7 @@ func buildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 	}
 }
 
-func main() {
-	err := buildImage("https://github.com/thepeak99/nomad-docker", "Dockerfile", []string{"salam"}, nil)
-	fmt.Println(err)
-}
+// func main() {
+// 	err := buildImage("https://github.com/thepeak99/nomad-docker", "Dockerfile", []string{"salam"}, nil)
+// 	fmt.Println(err)
+// }
