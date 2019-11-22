@@ -72,7 +72,7 @@ func New() types.Cheops {
 
 	log.Debug("Initializing Git Providers")
 	for _, gitProvider := range config.Providers.Git {
-		c.gitProviders[gitProvider.Name], err = c.initGitProvider(&gitProvider)
+		c.gitProviders[gitProvider.Name], err = c.initGitProvider(gitProvider)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"provider": gitProvider.Name,
@@ -83,7 +83,7 @@ func New() types.Cheops {
 
 	log.Debug("Initializing Docker Credential providers")
 	for _, dockerCredsProvider := range config.Providers.DockerCreds {
-		c.dockerCredsProviders[dockerCredsProvider.Name], err = c.initDockerCredsProvider(&dockerCredsProvider)
+		c.dockerCredsProviders[dockerCredsProvider.Name], err = c.initDockerCredsProvider(dockerCredsProvider)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"provider": dockerCredsProvider.Name,
@@ -136,7 +136,13 @@ func (c *cheopsImpl) procAction(action *config.Action) error {
 			return err
 		}
 
-		err = docker.PushImage(action.Tag, creds)
+		err = docker.PushImage(action.Image, creds)
+		if err != nil {
+			return err
+		}
+
+	case "exec":
+		err := docker.RunContainer(action.Image, action.Commands, nil)
 		if err != nil {
 			return err
 		}
@@ -190,7 +196,7 @@ func (c *cheopsImpl) Execute(ctxt *types.BuildContext) error {
 	}
 
 	for _, action := range ctxt.Build.Actions {
-		err := c.procAction(&action)
+		err := c.procAction(action)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"action": action.Type,

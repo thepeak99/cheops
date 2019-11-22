@@ -30,7 +30,7 @@ type Container struct {
 type Action struct {
 	Type      string
 	Commands  []string
-	Tag       string
+	Image     string
 	Provider  string
 	Container string
 }
@@ -40,9 +40,9 @@ type Notifier struct{}
 type Build struct {
 	Name       string
 	Repo       Repository
-	Containers []Container
-	Actions    []Action
-	Notifiers  []Notifier
+	Containers []*Container
+	Actions    []*Action
+	Notifiers  []*Notifier
 }
 
 type GitProvider struct {
@@ -64,13 +64,13 @@ type DockerCredsProvider struct {
 }
 
 type Providers struct {
-	Git         []GitProvider
-	DockerCreds []DockerCredsProvider `yaml:"docker_creds"`
+	Git         []*GitProvider
+	DockerCreds []*DockerCredsProvider `yaml:"docker_creds"`
 }
 
 type CheopsConfig struct {
 	General   General
-	Builds    []Build
+	Builds    []*Build
 	Providers Providers
 }
 

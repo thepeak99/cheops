@@ -36,6 +36,16 @@ func (c *cheopsImpl) RegisterWebhook(endpoint string, webhook types.WebhookFunc)
 
 			return
 		}
+
+		if buildCtxt.Build.Repo.Branch != buildCtxt.Branch {
+			log.WithFields(log.Fields{
+				"endpoint": endpoint,
+				"branch":   buildCtxt.Branch,
+			}).Debug("Not building unknown branch")
+
+			return
+		}
+
 		go c.Execute(buildCtxt)
 	})
 }

@@ -81,11 +81,15 @@ func New(cheops types.Cheops, providerConfig *config.GitProvider) (*GithubGitPro
 		}
 
 		repoURL := payload.Repository.URL
-		var build config.Build
+		var build *config.Build
 		for _, build = range cheops.Config().Builds {
 			if build.Repo.URL == repoURL {
 				break
 			}
+		}
+
+		if build == nil {
+			return nil, errors.New("Unknown build")
 		}
 
 		var branch string
@@ -98,7 +102,7 @@ func New(cheops types.Cheops, providerConfig *config.GitProvider) (*GithubGitPro
 
 		ctxt := types.BuildContext{
 			Commit: payload.HeadCommit.Id,
-			Build:  &build,
+			Build:  build,
 			Branch: branch,
 		}
 
