@@ -46,7 +46,7 @@ func New(cheops types.Cheops, providerConfig *config.GitProvider) (*GithubGitPro
 		name:     providerConfig.Name,
 	}
 
-	cheops.RegisterWebhook(endpoint, func(body io.ReadCloser, headers map[string][]string) (*types.BuildContext, error) {
+	cheops.RegisterWebhook(endpoint, func(body io.ReadCloser, headers map[string][]string) (*types.CommitInfo, error) {
 		log.WithFields(log.Fields{
 			"provider": providerConfig.Name,
 		}).Debug("Received webhook")
@@ -80,18 +80,6 @@ func New(cheops types.Cheops, providerConfig *config.GitProvider) (*GithubGitPro
 			return nil, err
 		}
 
-		repoURL := payload.Repository.URL
-		var build *config.Build
-		for _, build = range cheops.Config().Builds {
-			if build.Repo.URL == repoURL {
-				break
-			}
-		}
-
-		if build == nil {
-			return nil, errors.New("Unknown build")
-		}
-
 		var branch string
 		refParts := strings.Split(payload.Ref, "/")
 		if refParts[1] == "heads" {
@@ -100,20 +88,20 @@ func New(cheops types.Cheops, providerConfig *config.GitProvider) (*GithubGitPro
 			return nil, errors.New("Not a branch commit")
 		}
 
-		ctxt := types.BuildContext{
-			Commit: payload.HeadCommit.Id,
-			Build:  build,
-			Branch: branch,
+		info := types.CommitInfo{
+			ID:      payload.HeadCommit.Id,
+			RepoURL: payload.Repository.URL,
+			Branch:  branch,
 		}
 
-		return &ctxt, nil
+		return &info, nil
 	})
 
 	return &p, nil
 }
 
-func (p *GithubGitProvider) Clone(repo *config.Repository, commit, targetDir string) error {
-	err := git.CloneRepoWithToken(repo.URL, p.token, commit, targetDir)
+func (p *GithubGitProvider) Clone(commit *types.CommitInfo, targetDir string) error {
+	err := git.CloneRepoWithToken(commit.RepoURL, p.token, commit.ID, targetDir)
 	if err != nil {
 		return err
 	}

@@ -18,31 +18,7 @@ type Repository struct {
 	Provider string
 	URL      string
 	Branch   string
-}
-
-type Container struct {
-	Dockerfile string
-	Context    string
-	Tag        string
-	Args       map[string]*string
-}
-
-type Action struct {
-	Type      string
-	Commands  []string
-	Image     string
-	Provider  string
-	Container string
-}
-
-type Notifier struct{}
-
-type Build struct {
-	Name       string
-	Repo       Repository
-	Containers []*Container
-	Actions    []*Action
-	Notifiers  []*Notifier
+	Secrets  map[string]interface{}
 }
 
 type GitProvider struct {
@@ -70,7 +46,7 @@ type Providers struct {
 
 type CheopsConfig struct {
 	General   General
-	Builds    []*Build
+	Repos     []*Repository
 	Providers Providers
 }
 

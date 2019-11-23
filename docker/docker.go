@@ -17,22 +17,23 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/mholt/archiver"
 	"github.com/moby/moby/pkg/stdcopy"
+	"golang.org/x/sync/errgroup"
 
 	log "github.com/sirupsen/logrus"
 )
 
-func streamDockerOutput(reader io.ReadCloser) {
-	bufReader := bufio.NewReader(reader)
-	for {
-		line, _, err := bufReader.ReadLine()
-		if err != nil {
-			break
-		}
+func streamDockerOutput(reader io.ReadCloser) error {
+	scanner := bufio.NewScanner(reader)
+	defer reader.Close()
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
 		data := make(map[string]interface{})
-		err = json.Unmarshal(line, &data)
+		err := json.Unmarshal(line, &data)
 		if err != nil {
-			break
+			return err
 		}
+
 		if data["stream"] != nil {
 			log.Info(data["stream"])
 		} else if data["status"] != nil {
@@ -43,9 +44,12 @@ func streamDockerOutput(reader io.ReadCloser) {
 			} else {
 				log.Info(status)
 			}
+		} else if data["error"] != nil {
+			return errors.New(data["error"].(string))
 		}
 	}
-	reader.Close()
+
+	return scanner.Err()
 }
 
 type logWriter struct {
@@ -128,8 +132,7 @@ func PushImage(image, credentials string) error {
 		return err
 	}
 
-	streamDockerOutput(reader)
-	return nil
+	return streamDockerOutput(reader)
 }
 
 func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]*string) error {
@@ -139,10 +142,9 @@ func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 	}
 	reader, writer := io.Pipe()
 
-	errChan := make(chan error)
-	doneChan := make(chan int)
+	g := errgroup.Group{}
 
-	go func() {
+	g.Go(func() error {
 		info, err := cli.ImageBuild(context.TODO(), reader, types.ImageBuildOptions{
 			Tags:       tags,
 			Dockerfile: dockerfilePath,
@@ -150,16 +152,13 @@ func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 			PullParent: true,
 		})
 		if err != nil {
-			errChan <- err
-			return
+			return err
 		}
 
-		streamDockerOutput(info.Body)
+		return streamDockerOutput(info.Body)
+	})
 
-		doneChan <- 1
-	}()
-
-	go func() {
+	g.Go(func() error {
 		t := archiver.NewTar()
 		t.Create(writer)
 
@@ -168,11 +167,11 @@ func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 			writer.Close()
 		}()
 
-		err = filepath.Walk(
+		return filepath.Walk(
 			repoPath,
 			func(path string, info os.FileInfo, err error) error {
-				if info == nil {
-					return errors.New("Can't walk directory")
+				if err != nil {
+					return err
 				}
 
 				relPath, err := filepath.Rel(repoPath, path)
@@ -185,10 +184,6 @@ func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 					return err
 				}
 				defer file.Close()
-
-				if err != nil {
-					return err
-				}
 
 				err = t.Write(archiver.File{
 					FileInfo: archiver.FileInfo{
@@ -204,27 +199,9 @@ func BuildImage(repoPath, dockerfilePath string, tags []string, args map[string]
 				return nil
 			},
 		)
+	})
 
-		if err != nil {
-			errChan <- err
-			return
-		}
-
-		doneChan <- 1
-	}()
-
-	doneCount := 0
-	for {
-		select {
-		case err := <-errChan:
-			return err
-		case <-doneChan:
-			doneCount++
-			if doneCount == 2 {
-				return nil
-			}
-		}
-	}
+	return g.Wait()
 }
 
 // func main() {

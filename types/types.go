@@ -12,7 +12,7 @@ type DockerCredsProvider interface {
 
 // GitProvider provides cloning access to a repository
 type GitProvider interface {
-	Clone(repo *config.Repository, commit, targetDir string) error
+	Clone(commit *CommitInfo, targetDir string) error
 	RegisterRepo(repo *config.Repository) error
 }
 
@@ -23,10 +23,39 @@ type Cheops interface {
 	Serve() error
 }
 
-type BuildContext struct {
-	Commit string
-	Branch string
-	Build  *config.Build
+type Container struct {
+	Dockerfile string
+	Context    string
+	Tag        string
+	Args       map[string]*string
 }
 
-type WebhookFunc func(body io.ReadCloser, headers map[string][]string) (*BuildContext, error)
+type Action struct {
+	Type      string
+	Commands  []string
+	Image     string
+	Provider  string
+	Container string
+}
+
+type Build struct {
+	Containers []*Container
+	Actions    []*Action
+	Notifiers  []*Notifier
+}
+
+type Notifier struct{}
+
+type CommitInfo struct {
+	ID      string
+	Branch  string
+	RepoURL string
+}
+
+type BuildContext struct {
+	Build   *Build
+	Commit  *CommitInfo
+	RepoDir string
+}
+
+type WebhookFunc func(body io.ReadCloser, headers map[string][]string) (*CommitInfo, error)

@@ -1,6 +1,7 @@
 package cheops
 
 import (
+	"cheops/config"
 	"cheops/types"
 	"net/http"
 
@@ -27,7 +28,7 @@ func (c *cheopsImpl) RegisterWebhook(endpoint string, webhook types.WebhookFunc)
 		}).Debug("Received webhook")
 
 		w.WriteHeader(200)
-		buildCtxt, err := webhook(r.Body, r.Header)
+		commit, err := webhook(r.Body, r.Header)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error":    err,
@@ -37,15 +38,37 @@ func (c *cheopsImpl) RegisterWebhook(endpoint string, webhook types.WebhookFunc)
 			return
 		}
 
-		if buildCtxt.Build.Repo.Branch != buildCtxt.Branch {
+		var repo *config.Repository
+		for _, repo = range c.Config().Repos {
+			if repo.URL == commit.RepoURL {
+				break
+			}
+		}
+
+		if repo == nil {
+			log.WithFields(log.Fields{
+				"endpoint":   endpoint,
+				"repository": commit.RepoURL,
+				"branch":     commit.Branch,
+			}).Warn("Not building unknown repo")
+			return
+		}
+
+		if repo.Branch != commit.Branch {
 			log.WithFields(log.Fields{
 				"endpoint": endpoint,
-				"branch":   buildCtxt.Branch,
+				"branch":   commit.Branch,
 			}).Debug("Not building unknown branch")
 
 			return
 		}
 
-		go c.Execute(buildCtxt)
+		go func() {
+			ctxt, err := c.GetBuildContext(repo, commit)
+			if err != nil {
+				return
+			}
+			c.Execute(ctxt)
+		}()
 	})
 }

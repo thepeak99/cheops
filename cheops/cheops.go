@@ -1,15 +1,18 @@
 package cheops
 
 import (
+	"bytes"
 	"cheops/aws"
 	"cheops/config"
 	"cheops/docker"
 	"cheops/github"
 	"cheops/types"
 	"errors"
+	"html/template"
 	"io/ioutil"
 
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 type cheopsImpl struct {
@@ -93,21 +96,20 @@ func New() types.Cheops {
 	}
 
 	log.Debug("Loading builds")
-	for _, build := range config.Builds {
-		provider, ok := c.gitProviders[build.Repo.Provider]
+	for _, repo := range config.Repos {
+		provider, ok := c.gitProviders[repo.Provider]
 		if !ok {
 			log.WithFields(log.Fields{
-				"build":    build.Name,
-				"provider": build.Repo.Provider,
+				"repo":     repo.URL,
+				"provider": repo.Provider,
 			}).Fatal("Unknown Git provider")
 		}
 
-		err := provider.RegisterRepo(&build.Repo)
+		err := provider.RegisterRepo(repo)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"build":    build.Name,
-				"provider": build.Repo.Provider,
-				"repo":     build.Repo.URL,
+				"provider": repo.Provider,
+				"repo":     repo.URL,
 				"error":    err,
 			}).Fatal("Can't register repository to provider")
 		}
@@ -116,7 +118,7 @@ func New() types.Cheops {
 	return &c
 }
 
-func (c *cheopsImpl) procAction(action *config.Action) error {
+func (c *cheopsImpl) procAction(action *types.Action) error {
 	log.WithFields(log.Fields{
 		"type": action.Type,
 	}).Debug("Performing action")
@@ -151,23 +153,83 @@ func (c *cheopsImpl) procAction(action *config.Action) error {
 	return nil
 }
 
-func (c *cheopsImpl) Execute(ctxt *types.BuildContext) error {
+func loadBuild(repoDir string, repo *config.Repository, commit *types.CommitInfo) (*types.Build, error) {
+	tmpl, err := template.ParseFiles(repoDir + "/cheops.yaml")
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.Buffer{}
+	data := map[string]interface{}{
+		"Secrets":    repo.Secrets,
+		"Commit":     commit.ID,
+		"Repository": commit.RepoURL,
+		"Branch":     commit.Branch,
+	}
+	tmpl.Execute(&buf, &data)
+	
+	configBytes := buf.Bytes()
 	log.WithFields(log.Fields{
-		"build":  ctxt.Build.Name,
-		"branch": ctxt.Branch,
-		"commit": ctxt.Commit,
-	}).Debug("Executing task")
+		"repo":   commit.RepoURL,
+		"branch": commit.Branch,
+		"commit": commit.ID,
+	}).Debug(string(configBytes))
+
+	config := types.Build{}
+	err = yaml.Unmarshal(configBytes, &config)
+
+	if err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+func (c *cheopsImpl) GetBuildContext(repo *config.Repository, commit *types.CommitInfo) (*types.BuildContext, error) {
+	log.WithFields(log.Fields{
+		"repo": repo.URL,
+	}).Debug("Preparing build context")
 
 	cloneDir, err := ioutil.TempDir("/tmp", "cheops")
 	if err != nil {
-		return err
+		log.WithFields(log.Fields{
+			"directory": cloneDir,
+			"error":     err,
+		}).Error("Can't create temporary directory")
+		return nil, err
 	}
 
-	provider := c.gitProviders[ctxt.Build.Repo.Provider]
-	err = provider.Clone(&ctxt.Build.Repo, ctxt.Commit, cloneDir)
+	provider := c.gitProviders[repo.Provider]
+	err = provider.Clone(commit, cloneDir)
 	if err != nil {
-		return err
+		log.WithFields(log.Fields{
+			"repository": repo.URL,
+			"error":      err,
+		}).Error("Can't clone repository")
+		return nil, err
 	}
+
+	b, err := loadBuild(cloneDir, repo, commit)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"repository": repo.URL,
+			"error":      err,
+		}).Error("Can't load build")
+		return nil, err
+	}
+
+	return &types.BuildContext{
+		Build:   b,
+		Commit:  commit,
+		RepoDir: cloneDir,
+	}, nil
+}
+
+func (c *cheopsImpl) Execute(ctxt *types.BuildContext) error {
+	log.WithFields(log.Fields{
+		"repo":   ctxt.Commit.RepoURL,
+		"branch": ctxt.Commit.Branch,
+		"commit": ctxt.Commit.ID,
+	}).Debug("Executing task")
 
 	for _, container := range ctxt.Build.Containers {
 		log.WithFields(log.Fields{
@@ -185,7 +247,7 @@ func (c *cheopsImpl) Execute(ctxt *types.BuildContext) error {
 			context = "."
 		}
 
-		err := docker.BuildImage(cloneDir, dockerfile, tags, container.Args)
+		err := docker.BuildImage(ctxt.RepoDir, dockerfile, tags, container.Args)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"container": container.Tag,
