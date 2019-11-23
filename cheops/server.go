@@ -1,7 +1,6 @@
 package cheops
 
 import (
-	"cheops/config"
 	"cheops/types"
 	"net/http"
 
@@ -38,7 +37,7 @@ func (c *cheopsImpl) RegisterWebhook(endpoint string, webhook types.WebhookFunc)
 			return
 		}
 
-		var repo *config.Repository
+		var repo *types.Repository
 		for _, repo = range c.Config().Repos {
 			if repo.URL == commit.RepoURL {
 				break

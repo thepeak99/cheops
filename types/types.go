@@ -1,9 +1,51 @@
 package types
 
 import (
-	"cheops/config"
 	"io"
 )
+
+type GeneralConfig struct {
+	WebhookURL string `yaml:"webhook_url"`
+	TLSCert    string `yaml:"tls_cert"`
+	TLSKey     string `yaml:"tls_key"`
+	BindAddr   string `yaml:"bind_addr"`
+}
+
+type GitProviderConfig struct {
+	Name     string
+	Type     string
+	Username string
+	Password string
+	SSHKey   string
+	Token    string
+}
+
+type DockerCredsProviderConfig struct {
+	Name               string
+	Type               string
+	AwsRegion          string `yaml:"aws_region"`
+	AwsAccessKeyID     string `yaml:"aws_access_key_id"`
+	AwsSecretAccessKey string `yaml:"aws_secret_access_key"`
+	AwsSessionToken    string `yaml:"aws_session_token"`
+}
+
+type ProvidersConfig struct {
+	Git         []*GitProviderConfig
+	DockerCreds []*DockerCredsProviderConfig `yaml:"docker_creds"`
+}
+
+type CheopsConfig struct {
+	General   GeneralConfig
+	Repos     []*Repository
+	Providers ProvidersConfig
+}
+
+type Repository struct {
+	Provider string
+	URL      string
+	Branch   string
+	Secrets  map[string]interface{}
+}
 
 // DockerCredsProvider provides credentials for pushing Docker images
 type DockerCredsProvider interface {
@@ -13,11 +55,11 @@ type DockerCredsProvider interface {
 // GitProvider provides cloning access to a repository
 type GitProvider interface {
 	Clone(commit *CommitInfo, targetDir string) error
-	RegisterRepo(repo *config.Repository) error
+	RegisterRepo(repo *Repository) error
 }
 
 type Cheops interface {
-	Config() *config.CheopsConfig
+	Config() *CheopsConfig
 	RegisterWebhook(endpoint string, webhook WebhookFunc)
 	Execute(buildCtxt *BuildContext) error
 	Serve() error
@@ -39,9 +81,15 @@ type Action struct {
 }
 
 type Build struct {
+	Name       string
+	Branch     string
 	Containers []*Container
 	Actions    []*Action
 	Notifiers  []*Notifier
+}
+
+type BuildsConfig struct {
+	Builds []*Build
 }
 
 type Notifier struct{}

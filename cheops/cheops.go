@@ -16,16 +16,16 @@ import (
 )
 
 type cheopsImpl struct {
-	config               *config.CheopsConfig
+	config               *types.CheopsConfig
 	gitProviders         map[string]types.GitProvider
 	dockerCredsProviders map[string]types.DockerCredsProvider
 }
 
-func (c *cheopsImpl) Config() *config.CheopsConfig {
+func (c *cheopsImpl) Config() *types.CheopsConfig {
 	return c.config
 }
 
-func (c *cheopsImpl) initDockerCredsProvider(providerConfig *config.DockerCredsProvider) (types.DockerCredsProvider, error) {
+func (c *cheopsImpl) initDockerCredsProvider(providerConfig *types.DockerCredsProviderConfig) (types.DockerCredsProvider, error) {
 	switch providerConfig.Type {
 	case "aws":
 		provider, err := aws.New(
@@ -44,7 +44,7 @@ func (c *cheopsImpl) initDockerCredsProvider(providerConfig *config.DockerCredsP
 	}
 }
 
-func (c *cheopsImpl) initGitProvider(providerConfig *config.GitProvider) (types.GitProvider, error) {
+func (c *cheopsImpl) initGitProvider(providerConfig *types.GitProviderConfig) (types.GitProvider, error) {
 	var provider types.GitProvider
 	var err error
 
@@ -153,7 +153,7 @@ func (c *cheopsImpl) procAction(action *types.Action) error {
 	return nil
 }
 
-func loadBuild(repoDir string, repo *config.Repository, commit *types.CommitInfo) (*types.Build, error) {
+func loadBuild(repoDir string, repo *types.Repository, commit *types.CommitInfo) (*types.Build, error) {
 	tmpl, err := template.ParseFiles(repoDir + "/cheops.yaml")
 	if err != nil {
 		return nil, err
@@ -167,24 +167,35 @@ func loadBuild(repoDir string, repo *config.Repository, commit *types.CommitInfo
 		"Branch":     commit.Branch,
 	}
 	tmpl.Execute(&buf, &data)
-	
+
 	configBytes := buf.Bytes()
 	log.WithFields(log.Fields{
 		"repo":   commit.RepoURL,
 		"branch": commit.Branch,
 		"commit": commit.ID,
-	}).Debug(string(configBytes))
+		"config": string(configBytes),
+	}).Debug("Loading config")
 
-	config := types.Build{}
+	config := types.BuildsConfig{}
 	err = yaml.Unmarshal(configBytes, &config)
-
 	if err != nil {
 		return nil, err
 	}
-	return &config, nil
+
+	var build *types.Build
+	for _, build = range config.Builds {
+		if build.Branch == commit.Branch {
+			break
+		}
+	}
+	if build == nil {
+		return nil, errors.New("No matching branches")
+	}
+
+	return build, nil
 }
 
-func (c *cheopsImpl) GetBuildContext(repo *config.Repository, commit *types.CommitInfo) (*types.BuildContext, error) {
+func (c *cheopsImpl) GetBuildContext(repo *types.Repository, commit *types.CommitInfo) (*types.BuildContext, error) {
 	log.WithFields(log.Fields{
 		"repo": repo.URL,
 	}).Debug("Preparing build context")

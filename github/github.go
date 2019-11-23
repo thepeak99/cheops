@@ -2,7 +2,6 @@ package github
 
 import (
 	"bytes"
-	"cheops/config"
 	"cheops/git"
 	"cheops/types"
 	"encoding/json"
@@ -32,7 +31,7 @@ type githubPayload struct {
 	} `json:"head_commit"`
 }
 
-func New(cheops types.Cheops, providerConfig *config.GitProvider) (*GithubGitProvider, error) {
+func New(cheops types.Cheops, providerConfig *types.GitProviderConfig) (*GithubGitProvider, error) {
 	log.WithFields(log.Fields{
 		"provider": "Github",
 	}).Debug("Initializing Git provider")
@@ -108,7 +107,7 @@ func (p *GithubGitProvider) Clone(commit *types.CommitInfo, targetDir string) er
 	return nil
 }
 
-func (p *GithubGitProvider) RegisterRepo(repo *config.Repository) error {
+func (p *GithubGitProvider) RegisterRepo(repo *types.Repository) error {
 	if !strings.HasPrefix(repo.URL, "https://github.com/") {
 		return errors.New("The repository URL must start with https://github.com/")
 	}
